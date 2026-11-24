@@ -343,7 +343,8 @@ System.register("chunks:///_virtual/Ballistics.ts", ['cc', './Config.ts'], funct
 
       /**
        * Drag vector is start minus current, in screen pixels with +y up (slingshot convention).
-       * Direction is unrestricted; length sets the power up to the cannon's current `maxSpeed`.
+       * The barrel only turns between `aim.minAngleDeg` and 90° (straight up): a pull outside that fan is
+       * clamped onto the nearest edge, so every shot flies up-and-right. Length sets the power.
        */
       function solveAim(pullX, pullY, maxSpeed) {
         if (maxSpeed === void 0) {
@@ -354,7 +355,11 @@ System.register("chunks:///_virtual/Ballistics.ts", ['cc', './Config.ts'], funct
           sim = CONFIG.sim;
         var pull = Math.hypot(pullX, pullY);
         if (pull < aim.deadzonePx) return null;
-        var angle = Math.atan2(pullY, pullX);
+
+        // The barrel turns in the up-right fan [minAngleDeg, 90°]. A pull wraps to the nearer fan edge:
+        // anything past straight-down to the left (under -90°) wraps up to 90° rather than jumping across the world.
+        var raw = Math.atan2(pullY, pullX);
+        var angle = clamp(raw < -Math.PI / 2 ? Math.PI / 2 : raw, aim.minAngleDeg * Math.PI / 180, Math.PI / 2);
         var power = clamp((pull - aim.deadzonePx) / (aim.fullPullPx - aim.deadzonePx), 0, 1);
         var minSpeed = speedForRange(aim.minRange);
         var speed = minSpeed + (Math.max(minSpeed, maxSpeed) - minSpeed) * power;
@@ -641,7 +646,9 @@ System.register("chunks:///_virtual/Config.ts", ['cc'], function (exports) {
           deadzonePx: 24,
           // shorter drags cancel the shot
           fullPullPx: 460,
-          // pull that reaches the cannon's full power; any angle is allowed
+          // pull that reaches the cannon's full power
+          minAngleDeg: 30,
+          // the barrel only turns in the up-right fan: from this elevation to straight up (90°); pulls outside are clamped to the nearest edge
           minRange: 4,
           // flat range of the weakest shot, in tiles
           baseMaxRange: 35,
@@ -3665,7 +3672,9 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
         _proto.clampCamera = function clampCamera() {
           var halfW = this.W / 2 / (T * this.zoom),
             halfH = this.H / 2 / (T * this.zoom);
-          var x = Math.max(this.map.left + halfW, Math.min(this.map.left + this.map.width - halfW, this.camX));
+          // The foundation starts at world x=0 and shells can only fly right (30..90° fan), so the view never
+          // needs the pre-grown ground left of it: pin the left screen edge at x=0 instead of at the grown map edge.
+          var x = Math.max(halfW, Math.min(this.map.left + this.map.width - halfW, this.camX));
           if (x !== this.camX) {
             this.camX = x;
             this.velX = 0;
