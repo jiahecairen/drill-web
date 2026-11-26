@@ -1002,6 +1002,8 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
           _this.terrain = void 0;
           _this.sky = void 0;
           _this.ground = void 0;
+          _this.clouds = null;
+          // soft glow-sprite cloud band, built once by drawBackdrop
           _this.aimGfx = void 0;
           _this.boundGfx = void 0;
           _this.wallShown = -1;
@@ -1355,20 +1357,30 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
             w = (CONFIG.map.worldRight - CONFIG.map.worldLeft) * T,
             depth = (CONFIG.map.height + 40) * T;
           u.clear();
-          u.fillColor = new Color(255, 255, 255, 62);
+          u.fillColor = new Color(3, 2, 5, 255);
+          u.rect(w0, -depth - GRASS_DEPTH, w, depth);
+          u.fill();
+          if (this.clouds) return;
+          // Clouds are soft glow SPRITES, not Graphics circles: ~270 tessellated circle fills made this one node the
+          // single biggest occupant of the shared 2D batcher buffer, and Safari throws "Length out of range of buffer"
+          // the moment that buffer overflows (Chrome silently tolerates it). A sprite is 4 vertices; the whole band is now trivial.
+          this.clouds = node('Clouds', this.world);
+          this.clouds.setSiblingIndex(1); // above the dark rect, below the terrain
           for (var i = 0; i < 90; i++) {
             var x = w0 + (i + 0.5) / 90 * w + Math.sin(i * 12.9898) * 90; // clouds spread over the whole world
             var y = (5 + Math.abs(Math.sin(i * 78.233)) * 95) * T,
               r = 26 + Math.abs(Math.sin(i * 3.7)) * 22;
-            u.circle(x - r, y, r * 0.72);
-            u.circle(x, y + r * 0.2, r);
-            u.circle(x + r, y, r * 0.68);
-            u.fill();
+            for (var _iterator2 = _createForOfIteratorHelperLoose([[-r, 0, 0.72], [0, 0.2 * r, 1], [r, 0, 0.68]]), _step2; !(_step2 = _iterator2()).done;) {
+              var _step2$value = _step2.value,
+                dx = _step2$value[0],
+                dy = _step2$value[1],
+                k = _step2$value[2];
+              var c = glowSprite(this.clouds, r * 2.5 * k, r * 2.0 * k, x + dx, y + dy);
+              c.color = new Color(255, 255, 255, 46); // the three puffs overlap and add up toward the old 62 alpha
+            }
           }
-          u.fillColor = new Color(3, 2, 5, 255);
-          u.rect(w0, -depth - GRASS_DEPTH, w, depth);
-          u.fill();
         };
+
         _proto.buildHud = function buildHud() {
           this.hud = node('Hud', this.node);
           this.walletRoot = node('Warehouse', this.hud);
@@ -1503,9 +1515,9 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
           var d = this.store.data;
           this.walletLabel.string = String(Math.round(this.shownWallet));
           this.updateFactoryBadge();
-          for (var _iterator2 = _createForOfIteratorHelperLoose(this.cards), _step2; !(_step2 = _iterator2()).done;) {
+          for (var _iterator3 = _createForOfIteratorHelperLoose(this.cards), _step3; !(_step3 = _iterator3()).done;) {
             var _c$root$getComponent;
-            var c = _step2.value;
+            var c = _step3.value;
             var level = c.kind === 'fuel' ? d.fuelLevel : d.drillLevel,
               price = this.store.price(c.kind);
             var cut = function cut(l) {
@@ -1523,8 +1535,8 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
           this.updateRecommend();
         };
         _proto.setCards = function setCards(on) {
-          for (var _iterator3 = _createForOfIteratorHelperLoose(this.cards), _step3; !(_step3 = _iterator3()).done;) {
-            var c = _step3.value;
+          for (var _iterator4 = _createForOfIteratorHelperLoose(this.cards), _step4; !(_step4 = _iterator4()).done;) {
+            var c = _step4.value;
             c.root.active = on;
           }
           this.factoryButton.active = on;
@@ -1802,24 +1814,37 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
           if (this.lastPath.length > 1) {
             g.strokeColor = new Color(190, 226, 255, 165);
             g.lineWidth = 3; // faint but readable over any tile art
-            var a = this.lastPath[0],
+            // The sim leaves one path point every 2 ms: a deep mine's long flight can hold tens of thousands of them.
+            // Drawing every point would push the Graphics past the engine's 65535-vertex upload limit ("Length out of
+            // range of buffer") — thin the path to ~320 points first, then dash by pen toggle, never by inner loops.
+            var path = this.lastPath;
+            var stride = Math.max(1, Math.ceil(path.length / 320));
+            var dash = 0.9,
+              acc = 0,
               pen = true;
-            g.moveTo(this.terrain.px(a.x), -a.y * T);
-            for (var _iterator4 = _createForOfIteratorHelperLoose(this.lastPath), _step4; !(_step4 = _iterator4()).done;) {
-              var b = _step4.value;
-              var seg = Math.hypot(b.x - a.x, b.y - a.y);
-              if (seg < 1e-6) continue;
-              var rest = seg;
-              while (rest > 1e-6) {
-                var step = Math.min(rest, 0.9),
-                  _t2 = (seg - rest + step) / seg;
-                var px = this.terrain.px(a.x + (b.x - a.x) * _t2),
-                  py = -(a.y + (b.y - a.y) * _t2) * T;
-                if (pen) g.lineTo(px, py);else g.moveTo(px, py);
-                rest -= step;
+            var a0 = path[0];
+            var total = 0;
+            for (var i = stride; i < path.length; i += stride) {
+              var b = path[i];
+              total += Math.hypot(b.x - a0.x, b.y - a0.y);
+              a0 = b;
+            }
+            if (total > 320 * 1.8) dash = total / 320; // keep ≤ ~320 dashes even on absurdly long paths
+            a0 = path[0];
+            g.moveTo(this.terrain.px(a0.x), -a0.y * T);
+            for (var _i2 = stride; _i2 < path.length; _i2 += stride) {
+              var _b = path[_i2];
+              var seg = Math.hypot(_b.x - a0.x, _b.y - a0.y);
+              a0 = _b;
+              if (!(seg > 1e-9)) continue;
+              acc += seg;
+              if (acc >= dash) {
+                acc = 0;
                 pen = !pen;
               }
-              a = b;
+              var px = this.terrain.px(_b.x),
+                py = -_b.y * T;
+              if (pen) g.lineTo(px, py);else g.moveTo(px, py);
             }
             g.stroke();
           }
@@ -1830,8 +1855,8 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
           var last = flightPoint(aim, 0),
             travelled = 0,
             nextDot = 0;
-          for (var _t3 = 0; _t3 < aim.flightTime && travelled < length; _t3 += 0.004) {
-            var p = flightPoint(aim, _t3);
+          for (var _t2 = 0; _t2 < aim.flightTime && travelled < length; _t2 += 0.004) {
+            var p = flightPoint(aim, _t2);
             travelled += Math.hypot(p.x - last.x, p.y - last.y);
             last = p;
             if (travelled >= nextDot) {
@@ -1918,9 +1943,10 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
             x1 = (this.map.left + this.map.width) * T;
           g.lineWidth = 3;
           g.strokeColor = new Color(255, 232, 150, 190);
-          for (var x = x0; x < x1; x += 26) {
+          var step = Math.max(26, (x1 - x0) / 240); // dash count capped like the aim path: a grown world spans tens of thousands of px
+          for (var x = x0; x < x1; x += step) {
             g.moveTo(x, y);
-            g.lineTo(x + 14, y);
+            g.lineTo(x + step * 0.55, y);
           }
           g.stroke();
         };
@@ -2264,10 +2290,10 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
             }
             f.node.active = true;
             f.time = Math.min(1, f.time + dt / CONFIG.settle.flySeconds);
-            var _t4 = f.time < 0.5 ? 2 * f.time * f.time : 1 - Math.pow(-2 * f.time + 2, 2) / 2,
-              u = 1 - _t4;
-            f.node.setPosition(u * u * f.from.x + 2 * u * _t4 * f.ctrl.x + _t4 * _t4 * f.to.x, u * u * f.from.y + 2 * u * _t4 * f.ctrl.y + _t4 * _t4 * f.to.y);
-            var scale = 1 - 0.3 * _t4;
+            var _t3 = f.time < 0.5 ? 2 * f.time * f.time : 1 - Math.pow(-2 * f.time + 2, 2) / 2,
+              u = 1 - _t3;
+            f.node.setPosition(u * u * f.from.x + 2 * u * _t3 * f.ctrl.x + _t3 * _t3 * f.to.x, u * u * f.from.y + 2 * u * _t3 * f.ctrl.y + _t3 * _t3 * f.to.y);
+            var scale = 1 - 0.3 * _t3;
             f.node.setScale(scale, scale);
             if (f.time >= 1) {
               f.node.destroy();
@@ -3403,12 +3429,12 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
               this.lineFx.splice(i, 1);
               continue;
             }
-            var _t5 = f.age / f.life,
-              a = 1 - _t5,
+            var _t4 = f.age / f.life,
+              a = 1 - _t4,
               g = f.g;
             var px = this.terrain.px(f.x),
               py = -f.y * T,
-              R = f.r * T * (0.3 + 0.85 * Math.sqrt(_t5));
+              R = f.r * T * (0.3 + 0.85 * Math.sqrt(_t4));
             g.clear();
             if (f.kind === 'blast') {
               g.lineWidth = 4;
@@ -3485,11 +3511,11 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
               this.rings.splice(i, 1);
               continue;
             }
-            var _t6 = ring.age / ring.life,
-              k = ring.size * (ring.start + (1 - ring.start) * Math.sqrt(_t6)) / 64,
+            var _t5 = ring.age / ring.life,
+              k = ring.size * (ring.start + (1 - ring.start) * Math.sqrt(_t5)) / 64,
               c = ring.sprite.color.clone();
             ring.sprite.node.setScale(k, k);
-            c.a = Math.round(255 * (1 - _t6));
+            c.a = Math.round(255 * (1 - _t5));
             ring.sprite.color = c;
           }
         }
@@ -3558,8 +3584,8 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
             };
           var n = Math.min(70, Math.max(1, Math.ceil(Math.hypot(tx - last.x, ty - last.y) / (size * 0.35))));
           for (var i = 1; i <= n; i++) {
-            var _t7 = i / n;
-            this.spawnFlame(last.x + (tx - last.x) * _t7, last.y + (ty - last.y) * _t7, dx, dy, size);
+            var _t6 = i / n;
+            this.spawnFlame(last.x + (tx - last.x) * _t6, last.y + (ty - last.y) * _t6, dx, dy, size);
           }
           this.lastTail = {
             x: tx,
@@ -3582,18 +3608,18 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
               this.flames.splice(i, 1);
               continue;
             }
-            var _t8 = f.age / f.life,
+            var _t7 = f.age / f.life,
               drag = Math.max(0, 1 - 2.2 * dt);
             f.vx *= drag;
             f.vy *= drag;
             f.x += f.vx * dt;
             f.y += f.vy * dt + 40 * dt;
             f.sprite.node.setPosition(f.x, f.y);
-            var d = f.size * (1 - 0.55 * _t8);
+            var d = f.size * (1 - 0.55 * _t7);
             f.sprite.node.setScale(d / 64, d / 64);
-            FLAME_TMP.g = Math.round(236 - 150 * _t8);
-            FLAME_TMP.b = Math.round(150 - 130 * _t8);
-            FLAME_TMP.a = Math.round(255 * Math.pow(1 - _t8, 1.3) * 0.9);
+            FLAME_TMP.g = Math.round(236 - 150 * _t7);
+            FLAME_TMP.b = Math.round(150 - 130 * _t7);
+            FLAME_TMP.a = Math.round(255 * Math.pow(1 - _t7, 1.3) * 0.9);
             f.sprite.color = FLAME_TMP;
           }
         };
@@ -3790,9 +3816,9 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
             }
             f.node.active = true;
             f.time = Math.min(1, f.time + dt / CONFIG.settle.flySeconds);
-            var _t9 = f.time < 0.5 ? 2 * f.time * f.time : 1 - Math.pow(-2 * f.time + 2, 2) / 2,
-              u = 1 - _t9;
-            f.node.setPosition(u * u * f.from.x + 2 * u * _t9 * f.ctrl.x + _t9 * _t9 * f.to.x, u * u * f.from.y + 2 * u * _t9 * f.ctrl.y + _t9 * _t9 * f.to.y);
+            var _t8 = f.time < 0.5 ? 2 * f.time * f.time : 1 - Math.pow(-2 * f.time + 2, 2) / 2,
+              u = 1 - _t8;
+            f.node.setPosition(u * u * f.from.x + 2 * u * _t8 * f.ctrl.x + _t8 * _t8 * f.to.x, u * u * f.from.y + 2 * u * _t8 * f.ctrl.y + _t8 * _t8 * f.to.y);
             var sc = 1 - 0.3 * f.time;
             f.node.setScale(sc, sc);
             if (f.time >= 1) {
@@ -3901,8 +3927,8 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
           if (this.factoryBounce > 0) {
             // Squash and stretch: first narrow and tall, then wide and short, settling back.
             this.factoryBounce = Math.max(0, this.factoryBounce - dt * 3.2);
-            var _t10 = 1 - this.factoryBounce,
-              v = Math.sin(_t10 * Math.PI * 2.6) * (1 - _t10);
+            var _t9 = 1 - this.factoryBounce,
+              v = Math.sin(_t9 * Math.PI * 2.6) * (1 - _t9);
             this.factoryButton.setScale(1 - 0.22 * v, 1 + 0.26 * v);
             if (this.factoryBounce === 0) this.factoryButton.setScale(1, 1);
           }
