@@ -818,7 +818,7 @@ System.register("chunks:///_virtual/Config.ts", ['cc'], function (exports) {
 });
 
 System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelpers.js', 'cc', './Ballistics.ts', './Config.ts', './GameStore.ts', './Skills.ts', './ShotSim.ts', './Art.ts', './AdService.ts', './Sound.ts', './TerrainView.ts', './Lang.ts'], function (exports) {
-  var _createForOfIteratorHelperLoose, _inheritsLoose, _asyncToGenerator, _regeneratorRuntime, cclegacy, _decorator, Color, game, Game, screen, sys, view, ResolutionPolicy, Graphics, UITransform, UIOpacity, Vec3, Sprite, Label, Mask, Component, Node, solveAim, flightPoint, CONFIG, ORES, RESOURCE_KEYS, RESOURCE_NAME, CELL, isOre, fuelAt, drillAt, GameStore, SKILLS, skillNode, effectText, ShotSim, node, sprite, glowSprite, panel, label, frame, loadArt, rewardedAd, Sound, TerrainView, GRASS_DEPTH, t, getLang, setLang, initLang;
+  var _createForOfIteratorHelperLoose, _inheritsLoose, _asyncToGenerator, _regeneratorRuntime, cclegacy, _decorator, Color, game, Game, screen, sys, view, ResolutionPolicy, Graphics, UITransform, UIOpacity, Vec3, Sprite, Label, Mask, Component, Node, profiler, solveAim, flightPoint, CONFIG, ORES, RESOURCE_KEYS, RESOURCE_NAME, CELL, isOre, fuelAt, drillAt, GameStore, SKILLS, skillNode, effectText, ShotSim, node, sprite, glowSprite, panel, label, frame, loadArt, rewardedAd, Sound, TerrainView, GRASS_DEPTH, t, getLang, setLang, initLang;
   return {
     setters: [function (module) {
       _createForOfIteratorHelperLoose = module.createForOfIteratorHelperLoose;
@@ -844,6 +844,7 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
       Mask = module.Mask;
       Component = module.Component;
       Node = module.Node;
+      profiler = module.profiler;
     }, function (module) {
       solveAim = module.solveAim;
       flightPoint = module.flightPoint;
@@ -1159,11 +1160,12 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
             return _regeneratorRuntime().wrap(function _callee$(_context) {
               while (1) switch (_context.prev = _context.next) {
                 case 0:
+                  profiler.hideStats(); // debug builds boot with the engine frame-stats panel open (application.js showFPS) — the shipping surface never shows it
                   initLang();
                   this.applyViewport();
-                  _context.next = 4;
+                  _context.next = 5;
                   return loadArt();
-                case 4:
+                case 5:
                   this.store = new GameStore(storage);
                   this.map = this.store.buildMap();
                   this.map.grow(-1);
@@ -1258,7 +1260,7 @@ System.register("chunks:///_virtual/GameRoot.ts", ['./rollupPluginModLoBabelHelp
                       _this2.fadeNode.getComponent(Graphics).clear();
                     }
                   };
-                case 31:
+                case 32:
                 case "end":
                   return _context.stop();
               }
